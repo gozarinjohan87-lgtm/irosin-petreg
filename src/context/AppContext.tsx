@@ -1,4 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
+import { supabase } from '@/lib/supabaseClient';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import type { User, Pet, Vaccination, Incident, Notification, UserRole, BiteCase, AdoptionListing, AdoptionRequest, StraySighting, AuditLog, SmsReminderLog, PurokChangeRequest, OfflineDispatchLog } from '@/types/types';
@@ -191,7 +192,15 @@ const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(loadState);
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log('Internet connected! Syncing local data to Supabase...');
+      syncStateToSupabase(state);
+    };
 
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [state]);
   useEffect(() => {
     saveState(state);
   }, [state]);
