@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { supabase } from "@/lib/supabaseClient";
 import { Link } from 'react-router-dom';
 import {
   PawPrint, AlertTriangle, Syringe, Users,
@@ -52,6 +53,26 @@ export function DashboardPage() {
   const recentIncidents = [...incidents].sort((a, b) => b.reportedAt.localeCompare(a.reportedAt)).slice(0, 5);
   const pendingBiteCases = biteCases.filter(b => b.quarantineStatus === 'pending' || b.quarantineStatus === 'under-quarantine');
   const activeAdoptions = adoptionListings.filter(l => l.status === 'active');
+
+const loadDashboardData = async () => {
+  try {
+    // Fetch your pending owners count and list directly from Supabase
+    const { data, error } = await supabase
+      .from('owner_registrations')
+      .select('*')
+      .eq('status', 'pending');
+    
+    if (!error && data) {
+      setPendingOwners(data); // Updates your local state with fresh database rows
+    }
+  } catch (err) {
+    console.error("Error loading dashboard data:", err);
+  }
+};
+
+useEffect(() => {
+  loadDashboardData();
+}, []);
 
   // ── Bite Center Dashboard ─────────────────────────────────────────
   if (isBiteCenter) {
