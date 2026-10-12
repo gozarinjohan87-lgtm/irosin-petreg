@@ -180,14 +180,44 @@ function loadState(): AppState {
   };
 }
 
-function saveState(state: AppState) {
+/*function saveState(state: AppState) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
     // ignore
   }
+}*/
+
+function saveState(state: AppState) {
+  try {
+    // 1. Always save locally first (for instant offline access)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+    // 2. Sync to Supabase in the background if internet is connected
+    if (navigator.onLine) {
+      syncStateToSupabase(state);
+    }
+  } catch {
+    // ignore
+  }
 }
 
+// Background sync function
+async function syncStateToSupabase(state: AppState) {
+  try {
+    const currentState = state as any;
+
+    if (currentState.pets && currentState.pets.length > 0) {
+      await supabase.from('pets').upsert(currentState.pets);
+    }
+
+    if (currentState.users && currentState.users.length > 0) {
+      await supabase.from('users').upsert(currentState.users);
+    }
+  } catch (err) {
+    console.warn('Cloud sync deferred until connection improves:', err);
+  }
+}
 const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
