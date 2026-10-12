@@ -1,5 +1,4 @@
 /* eslint-disable react-refresh/only-export-components */
-import { supabase } from '@/lib/supabaseClient';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import type { User, Pet, Vaccination, Incident, Notification, UserRole, BiteCase, AdoptionListing, AdoptionRequest, StraySighting, AuditLog, SmsReminderLog, PurokChangeRequest, OfflineDispatchLog } from '@/types/types';
