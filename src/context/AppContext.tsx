@@ -1,5 +1,4 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createClient } from '@supabase/supabase-js';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import type { User, Pet, Vaccination, Incident, Notification, UserRole, BiteCase, AdoptionListing, AdoptionRequest, StraySighting, AuditLog, SmsReminderLog, PurokChangeRequest, OfflineDispatchLog } from '@/types/types';
@@ -200,38 +199,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const update = (partial: Partial<AppState>) => {
     setState(prev => ({ ...prev, ...partial }));
   };
-
-  // --- ADD THIS REAL-TIME SYNC EFFECT HERE ---
-  useEffect(() => {
-    const fetchCloudData = async () => {
-      try {
-        // Fetch latest owner registrations/requests from Supabase
-        const { data: ownersData } = await supabase.from('owner_registrations').select('*');
-        if (ownersData) {
-          // If you store owners in state, you can map/update them here seamlessly
-        }
-      } catch (err) {
-        console.error("Cloud sync error:", err);
-      }
-    };
-
-    // Listen for database events globally across devices
-    const channel = supabase
-      .channel('app-realtime-sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public' },
-        () => {
-          fetchCloudData();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-  // ---------------------------------------------
+  
 
   // Support login by email OR by username (email prefix before @)
   const login = (emailOrUsername: string, password: string): User | null => {

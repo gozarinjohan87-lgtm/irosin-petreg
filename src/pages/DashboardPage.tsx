@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { supabase } from "@/lib/supabaseClient";
 import { Link } from 'react-router-dom';
 import {
   PawPrint, AlertTriangle, Syringe, Users,
