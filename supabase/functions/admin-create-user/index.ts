@@ -16,6 +16,7 @@ function respond(body: Record<string, unknown>, status = 200) {
 Deno.serve(async request => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return respond({ error: 'Method not allowed.' }, 405);
+  console.info('Admin user creation request received.');
 
   const authorization = request.headers.get('Authorization');
   if (!authorization?.startsWith('Bearer ')) return respond({ error: 'Authentication is required.' }, 401);
@@ -38,7 +39,10 @@ Deno.serve(async request => {
   });
 
   const { data: callerData, error: callerError } = await callerClient.auth.getUser(token);
-  if (callerError || !callerData.user) return respond({ error: 'Your session is invalid or expired.' }, 401);
+  if (callerError || !callerData.user) {
+    console.warn('Rejected admin user creation: caller session is invalid.');
+    return respond({ error: 'Your session is invalid or expired. Sign in again and retry.' }, 401);
+  }
 
   const { data: callerProfile, error: profileError } = await serviceClient
     .from('profiles')
@@ -50,6 +54,7 @@ Deno.serve(async request => {
     return respond({ error: 'Could not verify your PetReg permissions.' }, 500);
   }
   if (callerProfile?.role !== 'admin' || callerProfile.status !== 'active') {
+    console.warn('Rejected admin user creation: caller profile is not an active administrator.');
     return respond({ error: 'Only an active administrator can create accounts.' }, 403);
   }
 
@@ -85,6 +90,7 @@ Deno.serve(async request => {
     user_metadata: { name, username },
   });
   if (createError || !created.user) {
+    console.error('Supabase Auth rejected account creation:', createError?.message ?? 'No user returned.');
     return respond({ error: createError?.message ?? 'Supabase did not create the account.' }, 400);
   }
 
@@ -98,35 +104,39 @@ Deno.serve(async request => {
 
     let profileId = existingProfile?.id;
     if (!profileId) {
+      const profileToInsert: Record<string, unknown> = {
+        auth_user_id: created.user.id,
+        username,
+        name,
+        email,
+        role,
+        barangay: barangay || 'San Julian',
+        status: 'active',
+        verification_status: role === 'owner' ? 'verified' : 'pending',
+      };
+      if (role === 'operator') profileToInsert.operator_position = operatorPosition;
+
       const { data: insertedProfile, error: insertError } = await serviceClient
         .from('profiles')
-        .insert({
-          auth_user_id: created.user.id,
-          username,
-          name,
-          email,
-          role,
-          barangay: barangay || 'San Julian',
-          status: 'active',
-          verification_status: role === 'owner' ? 'verified' : 'pending',
-          operator_position: role === 'operator' ? operatorPosition : null,
-        })
+        .insert(profileToInsert)
         .select('id')
         .single();
       if (insertError) throw insertError;
       profileId = insertedProfile.id;
     }
 
+    const profileChanges: Record<string, unknown> = {
+      role,
+      barangay: barangay || 'San Julian',
+      status: 'active',
+      verification_status: role === 'owner' ? 'verified' : 'pending',
+      updated_at: new Date().toISOString(),
+    };
+    if (role === 'operator') profileChanges.operator_position = operatorPosition;
+
     const { data: profile, error: updateError } = await serviceClient
       .from('profiles')
-      .update({
-        role,
-        barangay: barangay || 'San Julian',
-        status: 'active',
-        verification_status: role === 'owner' ? 'verified' : 'pending',
-        operator_position: role === 'operator' ? operatorPosition : null,
-        updated_at: new Date().toISOString(),
-      })
+      .update(profileChanges)
       .eq('id', profileId)
       .select('*')
       .single();
@@ -134,9 +144,21 @@ Deno.serve(async request => {
 
     return respond({ profile });
   } catch (error) {
-    console.error('Failed to create PetReg profile for new auth user:', error);
-    await serviceClient.from('profiles').delete().eq('auth_user_id', created.user.id);
-    await serviceClient.auth.admin.deleteUser(created.user.id);
-    return respond({ error: 'The login was created, but the PetReg profile could not be saved. No account was retained; check the Supabase migrations and try again.' }, 500);
+    const detail = error instanceof Error ? error.message : 'Unknown database error.';
+    console.error('Failed to create PetReg profile for new auth user:', detail);
+    const { error: profileCleanupError } = await serviceClient
+      .from('profiles')
+      .delete()
+      .eq('auth_user_id', created.user.id);
+    const { error: authCleanupError } = await serviceClient.auth.admin.deleteUser(created.user.id);
+    if (profileCleanupError || authCleanupError) {
+      console.error('Failed to roll back incomplete account creation:', {
+        profileCleanupError,
+        authCleanupError,
+      });
+    }
+    return respond({
+      error: `Could not save the PetReg profile. Confirm the required Supabase migrations are applied. ${detail}`,
+    }, 500);
   }
 });

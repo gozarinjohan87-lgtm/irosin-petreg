@@ -753,7 +753,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         operatorPosition: user.operatorPosition,
       },
     });
-    if (error) throw error;
+    if (error) {
+      let message = error.message;
+      if (typeof error === 'object' && error !== null && 'context' in error && error.context instanceof Response) {
+        try {
+          const responseBody: unknown = await error.context.clone().json();
+          if (
+            typeof responseBody === 'object' &&
+            responseBody !== null &&
+            'error' in responseBody &&
+            typeof responseBody.error === 'string'
+          ) {
+            message = responseBody.error;
+          }
+        } catch {
+          // Keep the SDK error message when the response is not JSON.
+        }
+      }
+      throw new Error(message);
+    }
     if (!data?.profile || typeof data.profile.id !== 'string') {
       throw new Error('The account was created but the server did not return its PetReg profile. Refresh the user list or contact the administrator.');
     }
