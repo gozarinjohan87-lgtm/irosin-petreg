@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
-import { PawPrint, Eye, EyeOff, LogIn, UserPlus, KeyRound, CheckCircle2, AlertCircle } from 'lucide-react';
+import { PawPrint, Eye, EyeOff, LogIn, UserPlus, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { isSupabaseConfigured } from '@/lib/supabaseClient';
 import { generateId } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
 import { ForgotPasswordModal } from '@/components/auth/ForgotPasswordModal';
 
 export function LoginPage() {
   const { login, registerUser, currentUser, dispatchOfflineNotification, users } = useApp();
+  const { signInWithUsername, signUpWithUsername } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -59,24 +61,25 @@ export function LoginPage() {
     return null;
   }
 
-  function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    const user = login(loginForm.email, loginForm.password);
-    if (user) {
-      if (user.role === 'owner' && !user.purok) {
-        navigate('/complete-profile', { replace: true });
-      } else {
-        navigate('/dashboard', { replace: true });
+    if (import.meta.env.DEV && !isSupabaseConfigured) {
+      const user = login(loginForm.email, loginForm.password);
+      if (!user) {
+        setError('Invalid demo email or password. Please try again.');
       }
-    } else {
-      setError('Invalid email or password. Please try again.');
+      return;
     }
+
+    const { error: authError } = await signInWithUsername(loginForm.email, loginForm.password);
+    if (authError) setError(authError.message);
   }
 
-  function handleRegister(e: React.FormEvent) {
+  async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setSuccess('');
     if (!regForm.name.trim()) {
       setError('Please provide your full legal name.');
       return;
@@ -93,10 +96,26 @@ export function LoginPage() {
       setError('Passwords do not match.');
       return;
     }
-    if (regForm.password.length < 3) {
-      setError('Password must be at least 3 characters.');
+    if (regForm.password.length < 8) {
+      setError('Password must be at least 8 characters.');
       return;
     }
+
+    if (!(import.meta.env.DEV && !isSupabaseConfigured)) {
+      const result = await signUpWithUsername({
+        name: regForm.name,
+        username: regForm.username,
+        email: regForm.email,
+        password: regForm.password,
+      });
+      if (result.error) {
+        setError(result.error.message);
+      } else if (result.confirmationRequired) {
+        setSuccess('Account created. Check your email to confirm your address, then sign in.');
+      }
+      return;
+    }
+
     const newUser = {
       id: 'USR' + generateId(),
       name: regForm.name.trim(),
@@ -111,14 +130,6 @@ export function LoginPage() {
     registerUser(newUser);
     navigate('/complete-profile', { replace: true });
   }
-
-  const demoAccounts = [
-    { role: 'Municipal Admin', email: 'admin', pass: '123', color: 'bg-red-100 text-red-800' },
-    { role: 'Pet Owner', email: 'owner', pass: '123', color: 'bg-green-100 text-green-800' },
-    { role: 'Brgy Operator', email: 'op_bacolod', pass: '123', color: 'bg-blue-100 text-blue-800' },
-    { role: 'Bite Center', email: 'bite_center', pass: '123', color: 'bg-orange-100 text-orange-800' },
-    { role: 'Vet Clinic', email: 'vet_clinic', pass: '123', color: 'bg-purple-100 text-purple-800' },
-  ];
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-muted/30 px-4 py-10">
@@ -153,9 +164,9 @@ export function LoginPage() {
             <TabsContent value="login">
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-1">
-                  <Label htmlFor="email">Username or Email</Label>
+                  <Label htmlFor="email">{import.meta.env.DEV && !isSupabaseConfigured ? 'Username or Email' : 'Email Address'}</Label>
                   <Input
-                    id="email" type="text" placeholder="e.g. admin or admin@example.com" required
+                    id="email" type={import.meta.env.DEV && !isSupabaseConfigured ? 'text' : 'email'} placeholder={import.meta.env.DEV && !isSupabaseConfigured ? 'e.g. admin or admin@example.com' : 'you@example.com'} required
                     value={loginForm.email}
                     onChange={e => setLoginForm(p => ({ ...p, email: e.target.value }))}
                   />
@@ -163,13 +174,15 @@ export function LoginPage() {
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="password">Password</Label>
-                    <button
-                      type="button"
-                      onClick={() => setForgotPasswordOpen(true)}
-                      className="text-xs text-primary hover:underline font-medium"
-                    >
-                      Forgot Password?
-                    </button>
+                    {import.meta.env.DEV && !isSupabaseConfigured && (
+                      <button
+                        type="button"
+                        onClick={() => setForgotPasswordOpen(true)}
+                        className="text-xs text-primary hover:underline font-medium"
+                      >
+                        Forgot Password?
+                      </button>
+                    )}
                   </div>
                   <div className="relative">
                     <Input
@@ -242,7 +255,7 @@ export function LoginPage() {
                 <div className="space-y-1">
                   <Label htmlFor="rpass">Password</Label>
                   <Input
-                    id="rpass" type="password" placeholder="Min. 6 characters" required
+                    id="rpass" type="password" placeholder="At least 8 characters" required minLength={8}
                     value={regForm.password}
                     onChange={e => setRegForm(p => ({ ...p, password: e.target.value }))}
                   />
@@ -270,11 +283,13 @@ export function LoginPage() {
         <Link to="/report-incident" className="text-primary hover:underline">Click here — no login required</Link>
       </p>
 
-      <ForgotPasswordModal
-        open={forgotPasswordOpen}
-        onOpenChange={setForgotPasswordOpen}
-        initialIdentifier={loginForm.email}
-      />
+      {import.meta.env.DEV && !isSupabaseConfigured && (
+        <ForgotPasswordModal
+          open={forgotPasswordOpen}
+          onOpenChange={setForgotPasswordOpen}
+          initialIdentifier={loginForm.email}
+        />
+      )}
     </div>
   );
 }
