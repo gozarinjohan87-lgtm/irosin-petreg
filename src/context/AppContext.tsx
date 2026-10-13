@@ -35,6 +35,7 @@ interface AppState {
 interface AppContextType extends AppState {
   cloudLoading: boolean;
   cloudError: string | null;
+  createManagedUser: (user: Omit<User, 'id'>) => Promise<void>;
   login: (emailOrUsername: string, password: string) => User | null;
   logout: () => void;
   sendPasswordResetCode: (identifier: string) => { success: boolean; code?: string; message: string };
@@ -222,6 +223,7 @@ function userFromProfile(row: Record<string, unknown>): User {
     purok: typeof row.purok === 'string' ? row.purok : undefined,
     contactNumber: typeof row.contact_number === 'string' ? row.contact_number : undefined,
     address: typeof row.address === 'string' ? row.address : undefined,
+    operatorPosition: typeof row.operator_position === 'string' ? row.operator_position : undefined,
     avatarUrl: typeof row.avatar_url === 'string' ? row.avatar_url : undefined,
     status: row.status === 'active' ? 'active' : 'inactive',
     verificationStatus: row.verification_status === 'verified' || row.verification_status === 'rejected'
@@ -736,6 +738,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const addUser = (user: User) =>
     update({ users: [...state.users, user] });
+  const createManagedUser = async (user: Omit<User, 'id'>) => {
+    if (!supabase) {
+      throw new Error('Supabase is not configured. Admin accounts can only be created in the deployed Supabase-connected app.');
+    }
+
+    const { data, error } = await supabase.functions.invoke('admin-create-user', {
+      body: {
+        name: user.name,
+        email: user.email,
+        password: user.password,
+        role: user.role,
+        barangay: user.barangay,
+        operatorPosition: user.operatorPosition,
+      },
+    });
+    if (error) throw error;
+    if (!data?.profile || typeof data.profile.id !== 'string') {
+      throw new Error('The account was created but the server did not return its PetReg profile. Refresh the user list or contact the administrator.');
+    }
+
+    const managedUser = userFromProfile(data.profile as Record<string, unknown>);
+    setState(previous => ({
+      ...previous,
+      users: [...previous.users.filter(existing => existing.id !== managedUser.id), managedUser],
+    }));
+  };
   const registerUser = (user: User) =>
     update({
       users: [...state.users, user],
@@ -1070,6 +1098,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider value={{
       ...state, login, logout,
       cloudLoading, cloudError,
+      createManagedUser,
       addPet, updatePet, deletePet,
       addVaccination, updateVaccination,
       addIncident, updateIncident,

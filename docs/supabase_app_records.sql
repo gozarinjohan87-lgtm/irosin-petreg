@@ -62,6 +62,8 @@ CREATE INDEX IF NOT EXISTS idx_petreg_app_records_barangay
   ON public.petreg_app_records(barangay, record_type);
 
 ALTER TABLE public.petreg_app_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS operator_position text;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.petreg_app_records TO authenticated;
 GRANT INSERT ON public.petreg_app_records TO anon;
 
