@@ -1,11 +1,10 @@
-import { supabase } from '@/lib/supabaseClient';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   PawPrint, AlertTriangle, Syringe, Users,
   Plus, Eye, Bell, TrendingUp, CheckCircle,
   ShieldAlert, Stethoscope, HeartHandshake, ClipboardList, XCircle,
-  UserPlus, ShieldCheck, Clock, Lock,
+  UserPlus, Clock, Lock,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { StatCard } from '@/components/shared/StatCard';
@@ -48,31 +47,10 @@ export function DashboardPage() {
   const overdueVacc = vaccinations.filter(v => isOverdue(v.nextBoosterDue));
   const dueSoonVacc = vaccinations.filter(v => isDueSoon(v.nextBoosterDue, 30) && !isOverdue(v.nextBoosterDue));
   const pendingIncidents = incidents.filter(i => i.status === 'pending');
-  const unread = notifications.filter(n => !n.isRead);
   const recentPets = [...pets].sort((a, b) => b.registeredAt.localeCompare(a.registeredAt)).slice(0, 5);
   const recentIncidents = [...incidents].sort((a, b) => b.reportedAt.localeCompare(a.reportedAt)).slice(0, 5);
   const pendingBiteCases = biteCases.filter(b => b.quarantineStatus === 'pending' || b.quarantineStatus === 'under-quarantine');
   const activeAdoptions = adoptionListings.filter(l => l.status === 'active');
-
-const loadDashboardData = async () => {
-  try {
-    // Fetch your pending owners count and list directly from Supabase
-    const { data, error } = await supabase
-      .from('owner_registrations')
-      .select('*')
-      .eq('status', 'pending');
-    
-    if (!error && data) {
-      setPendingOwners(data); // Updates your local state with fresh database rows
-    }
-  } catch (err) {
-    console.error("Error loading dashboard data:", err);
-  }
-};
-
-useEffect(() => {
-  loadDashboardData();
-}, []);
 
   // ── Bite Center Dashboard ─────────────────────────────────────────
   if (isBiteCenter) {
@@ -407,10 +385,6 @@ useEffect(() => {
   const pendingOwners = isOperator
     ? users.filter(u => u.role === 'owner' && u.barangay?.toLowerCase() === currentUser.barangay?.toLowerCase() && u.verificationStatus === 'pending')
     : users.filter(u => u.role === 'owner' && u.verificationStatus === 'pending');
-
-  const verifiedOwners = isOperator
-    ? users.filter(u => u.role === 'owner' && u.barangay?.toLowerCase() === currentUser.barangay?.toLowerCase() && u.verificationStatus === 'verified')
-    : users.filter(u => u.role === 'owner' && u.verificationStatus === 'verified');
 
   return (
     <div>
