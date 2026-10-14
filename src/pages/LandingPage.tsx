@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   QrCode, Shield, Bell, BarChart2, PawPrint,
@@ -11,13 +11,10 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useApp } from '@/context/AppContext';
-import { useAuth } from '@/contexts/AuthContext';
-import { isSupabaseConfigured } from '@/lib/supabaseClient';
 import { ForgotPasswordModal } from '@/components/auth/ForgotPasswordModal';
 
 export function LandingPage() {
   const { pets, incidents, vaccinations, login, currentUser } = useApp();
-  const { signInWithUsername } = useAuth();
   const navigate = useNavigate();
 
   const [landingEmail, setLandingEmail] = useState('');
@@ -26,23 +23,18 @@ export function LandingPage() {
   const [loginError, setLoginError] = useState('');
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
 
-  useEffect(() => {
-    if (!currentUser) return;
-    navigate(currentUser.role === 'owner' && !currentUser.purok ? '/complete-profile' : '/dashboard', { replace: true });
-  }, [currentUser, navigate]);
-
-  async function handleLandingLogin(e: React.FormEvent) {
+  function handleLandingLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoginError('');
-    if (import.meta.env.DEV && !isSupabaseConfigured) {
-      const user = login(landingEmail, landingPass);
-      if (!user) setLoginError('Invalid demo credentials. Please try again.');
-      return;
-    }
-
-    const { error } = await signInWithUsername(landingEmail, landingPass);
-    if (error) {
-      setLoginError(error.message);
+    const user = login(landingEmail, landingPass);
+    if (user) {
+      if (user.role === 'owner' && !user.purok) {
+        navigate('/complete-profile');
+      } else {
+        navigate('/dashboard');
+      }
+    } else {
+      setLoginError('Invalid credentials. Check username/password or click a demo account below.');
     }
   }
 
@@ -118,13 +110,11 @@ export function LandingPage() {
                 )}
                 <form onSubmit={handleLandingLogin} className="space-y-3">
                   <div className="space-y-1.5 text-left">
-                    <Label htmlFor="landing-email" className="text-xs font-semibold">
-                      {import.meta.env.DEV && !isSupabaseConfigured ? 'Username or Email' : 'Email Address'}
-                    </Label>
+                    <Label htmlFor="landing-email" className="text-xs font-semibold">Username or Email</Label>
                     <Input
                       id="landing-email"
-                      type={import.meta.env.DEV && !isSupabaseConfigured ? 'text' : 'email'}
-                      placeholder={import.meta.env.DEV && !isSupabaseConfigured ? 'e.g. owner or admin@irosin.gov.ph' : 'you@example.com'}
+                      type="text"
+                      placeholder="e.g. owner or admin@irosin.gov.ph"
                       value={landingEmail}
                       onChange={e => setLandingEmail(e.target.value)}
                       required
@@ -134,15 +124,13 @@ export function LandingPage() {
                   <div className="space-y-1.5 text-left">
                     <div className="flex items-center justify-between">
                       <Label htmlFor="landing-pass" className="text-xs font-semibold">Password</Label>
-                      {import.meta.env.DEV && !isSupabaseConfigured && (
-                        <button
-                          type="button"
-                          onClick={() => setForgotPasswordOpen(true)}
-                          className="text-[11px] text-primary hover:underline font-medium"
-                        >
-                          Forgot password?
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setForgotPasswordOpen(true)}
+                        className="text-[11px] text-primary hover:underline font-medium"
+                      >
+                        Forgot password?
+                      </button>
                     </div>
                     <div className="relative">
                       <Input
@@ -193,13 +181,11 @@ export function LandingPage() {
               </CardContent>
             </Card>
 
-            {import.meta.env.DEV && !isSupabaseConfigured && (
-              <ForgotPasswordModal
-                open={forgotPasswordOpen}
-                onOpenChange={setForgotPasswordOpen}
-                initialIdentifier={landingEmail}
-              />
-            )}
+            <ForgotPasswordModal
+              open={forgotPasswordOpen}
+              onOpenChange={setForgotPasswordOpen}
+              initialIdentifier={landingEmail}
+            />
           </div>
         </div>
       </section>

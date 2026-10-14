@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { AlertTriangle, CheckCircle, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useApp } from '@/context/AppContext';
-import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,13 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { generateId } from '@/lib/utils';
 import { BARANGAYS, INCIDENT_LABELS } from '@/types/types';
-import type { Incident, IncidentType } from '@/types/types';
+import type { IncidentType } from '@/types/types';
 
 export function ReportIncidentPage() {
   const { addIncident } = useApp();
   const [submitted, setSubmitted] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
   const [form, setForm] = useState({
     type: '', dateTime: '', barangay: '', address: '',
     description: '', animalDescription: '', reporterName: '', reporterContact: '',
@@ -37,11 +34,11 @@ export function ReportIncidentPage() {
     return Object.keys(e).length === 0;
   };
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!validate() || submitting) return;
+    if (!validate()) return;
     const id = 'INC' + generateId();
-    const incident: Incident = {
+    addIncident({
       id,
       type: form.type as IncidentType,
       dateTime: form.dateTime,
@@ -53,34 +50,8 @@ export function ReportIncidentPage() {
       reporterContact: form.reporterContact.trim() || undefined,
       status: 'pending',
       reportedAt: new Date().toISOString().split('T')[0],
-    };
-
-    setSubmitting(true);
-    setSubmitError('');
-    try {
-      if (isSupabaseConfigured && supabase) {
-        const { error } = await supabase.from('petreg_app_records').insert({
-          record_type: 'incidents',
-          record_id: incident.id,
-          owner_profile_id: null,
-          barangay: incident.barangay,
-          payload: incident,
-        });
-        if (error) throw error;
-      } else if (import.meta.env.DEV) {
-        addIncident(incident);
-      } else {
-        setSubmitError('Incident reporting is temporarily unavailable because the database is not configured.');
-        return;
-      }
-
-      setSubmitted(id);
-    } catch (error) {
-      console.error('Failed to submit incident report:', error);
-      setSubmitError('Your report could not be submitted. Please try again later.');
-    } finally {
-      setSubmitting(false);
-    }
+    });
+    setSubmitted(id);
   }
 
   if (submitted) {
@@ -133,7 +104,6 @@ export function ReportIncidentPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-5">
-            {submitError && <p role="alert" className="text-sm text-destructive">{submitError}</p>}
             {/* Incident type */}
             <div className="space-y-1">
               <Label>Incident Type *</Label>
@@ -205,7 +175,7 @@ export function ReportIncidentPage() {
               </CardContent>
             </Card>
 
-            <Button type="submit" className="w-full" size="lg" disabled={submitting}>
+            <Button type="submit" className="w-full" size="lg">
               <AlertTriangle className="h-4 w-4" />
               Submit Incident Report
             </Button>

@@ -13,32 +13,10 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children }: AppLayoutProps) {
-  const { currentUser, unreadCount, cloudLoading, cloudError } = useApp();
+  const { currentUser, unreadCount } = useApp();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (!currentUser) return <Navigate to="/" replace />;
-
-  if (cloudLoading || cloudError) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
-        <div className="max-w-md text-center">
-          <h1 className="text-lg font-semibold">
-            {cloudLoading ? 'Loading your registry...' : 'Registry data unavailable'}
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {cloudLoading
-              ? 'Please wait while PetReg loads the latest data from Supabase.'
-              : cloudError}
-          </p>
-          {cloudError && (
-            <Button className="mt-4" onClick={() => window.location.reload()}>
-              Retry
-            </Button>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-screen w-full bg-muted/30">

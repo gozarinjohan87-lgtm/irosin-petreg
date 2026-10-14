@@ -1,15 +1,12 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+// @ts-ignore
+import { supabase } from '@/db/supabase';
 import type { User } from '@supabase/supabase-js';
+// @ts-ignore
+import type { Profile } from '@/types/types';
 import { toast } from 'sonner';
 
-type Profile = Record<string, unknown> & { id?: string };
-
 export async function getProfile(userId: string): Promise<Profile | null> {
-  if (!supabase) {
-    return null;
-  }
-
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
@@ -27,7 +24,7 @@ interface AuthContextType {
   profile: Profile | null;
   loading: boolean;
   signInWithUsername: (username: string, password: string) => Promise<{ error: Error | null }>;
-  signUpWithUsername: (details: { name: string; username: string; email: string; password: string }) => Promise<{ error: Error | null; confirmationRequired: boolean }>;
+  signUpWithUsername: (username: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -50,28 +47,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    if (!supabase) {
-      setLoading(false);
-      return;
-    }
-
     supabase
       .auth
       .getSession()
+      // @ts-ignore
       .then(({ data: { session } }) => {
         setUser(session?.user ?? null);
         if (session?.user) {
           getProfile(session.user.id).then(setProfile);
         }
       })
+      // @ts-ignore
       .catch(error => {
-        const message = error instanceof Error ? error.message : 'Unknown auth error';
-        toast.error(`获取用户信息失败: ${message}`);
+        toast.error(`获取用户信息失败: ${error.message}`);
       })
       .finally(() => {
         setLoading(false);
       });
 
+    // @ts-ignore
+    // In this function, do NOT use any await calls. Use `.then()` instead to avoid deadlocks.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -86,82 +81,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithUsername = async (username: string, password: string) => {
     try {
-      if (!supabase) {
-        return { error: new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.') };
-      }
-
-      const email = username.trim().toLowerCase();
-      if (!email.includes('@')) {
-        return { error: new Error('Sign in with the email address registered to your account.') };
-      }
-
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const email = `${username}@miaoda.com`;
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) throw error;
-      const profileData = await getProfile(data.user.id);
-      if (!profileData) {
-        await supabase.auth.signOut();
-        throw new Error('Your account has no PetReg profile. Apply the Supabase auth profile trigger migration and contact an administrator.');
-      }
-      if (profileData.status !== 'active') {
-        await supabase.auth.signOut();
-        throw new Error('This account is suspended. Contact an administrator.');
-      }
-      setProfile(profileData);
       return { error: null };
     } catch (error) {
       return { error: error as Error };
     }
   };
 
-  const signUpWithUsername = async (details: { name: string; username: string; email: string; password: string }) => {
+  const signUpWithUsername = async (username: string, password: string) => {
     try {
-      if (!supabase) {
-        return {
-          error: new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'),
-          confirmationRequired: false,
-        };
-      }
-
-      const { data, error } = await supabase.auth.signUp({
-        email: details.email.trim().toLowerCase(),
-        password: details.password,
-        options: {
-          data: {
-            name: details.name.trim(),
-            username: details.username.trim().toLowerCase(),
-          },
-        },
+      const email = `${username}@miaoda.com`;
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
       });
 
       if (error) throw error;
-      if (data.session && data.user) {
-        const profileData = await getProfile(data.user.id);
-        if (!profileData) {
-          await supabase.auth.signOut();
-          throw new Error('Your account was created but its PetReg profile is missing. Apply the Supabase auth profile trigger migration.');
-        }
-        setProfile(profileData);
-      }
-      return { error: null, confirmationRequired: !data.session };
+      return { error: null };
     } catch (error) {
-      return {
-        error: error instanceof Error ? error : new Error('Account registration failed.'),
-        confirmationRequired: false,
-      };
+      return { error: error as Error };
     }
   };
 
   const signOut = async () => {
-    if (!supabase) {
-      setUser(null);
-      setProfile(null);
-      return;
-    }
-
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);

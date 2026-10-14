@@ -4,7 +4,7 @@ import {
   PawPrint, AlertTriangle, Syringe, Users,
   Plus, Eye, Bell, TrendingUp, CheckCircle,
   ShieldAlert, Stethoscope, HeartHandshake, ClipboardList, XCircle,
-  UserPlus, Clock, Lock,
+  UserPlus, ShieldCheck, Clock, Lock,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { StatCard } from '@/components/shared/StatCard';
@@ -47,6 +47,7 @@ export function DashboardPage() {
   const overdueVacc = vaccinations.filter(v => isOverdue(v.nextBoosterDue));
   const dueSoonVacc = vaccinations.filter(v => isDueSoon(v.nextBoosterDue, 30) && !isOverdue(v.nextBoosterDue));
   const pendingIncidents = incidents.filter(i => i.status === 'pending');
+  const unread = notifications.filter(n => !n.isRead);
   const recentPets = [...pets].sort((a, b) => b.registeredAt.localeCompare(a.registeredAt)).slice(0, 5);
   const recentIncidents = [...incidents].sort((a, b) => b.reportedAt.localeCompare(a.reportedAt)).slice(0, 5);
   const pendingBiteCases = biteCases.filter(b => b.quarantineStatus === 'pending' || b.quarantineStatus === 'under-quarantine');
@@ -385,6 +386,10 @@ export function DashboardPage() {
   const pendingOwners = isOperator
     ? users.filter(u => u.role === 'owner' && u.barangay?.toLowerCase() === currentUser.barangay?.toLowerCase() && u.verificationStatus === 'pending')
     : users.filter(u => u.role === 'owner' && u.verificationStatus === 'pending');
+
+  const verifiedOwners = isOperator
+    ? users.filter(u => u.role === 'owner' && u.barangay?.toLowerCase() === currentUser.barangay?.toLowerCase() && u.verificationStatus === 'verified')
+    : users.filter(u => u.role === 'owner' && u.verificationStatus === 'verified');
 
   return (
     <div>

@@ -15,6 +15,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Search, Plus, UserCheck, UserX, Trash2, Users } from 'lucide-react';
+import { generateId } from '@/lib/utils';
 import { BARANGAYS } from '@/types/types';
 import type { User, UserRole } from '@/types/types';
 import { Navigate } from 'react-router-dom';
@@ -32,7 +33,7 @@ const ROLE_COLORS: Partial<Record<UserRole, string>> & Record<'admin' | 'operato
 };
 
 export function SettingsPage() {
-  const { users, createManagedUser, updateUser, deleteUser, currentUser } = useApp();
+  const { users, addUser, updateUser, deleteUser, currentUser } = useApp();
 
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('all');
@@ -47,7 +48,6 @@ export function SettingsPage() {
     operatorPosition: '',
   });
   const [formError, setFormError] = useState('');
-  const [creatingUser, setCreatingUser] = useState(false);
 
   if (currentUser?.role !== 'admin') return <Navigate to="/dashboard" replace />;
 
@@ -58,9 +58,8 @@ export function SettingsPage() {
     return matchSearch && matchRole;
   });
 
-  async function handleAdd(e: React.FormEvent) {
+  function handleAdd(e: React.FormEvent) {
     e.preventDefault();
-    if (creatingUser) return;
     setFormError('');
 
     if (users.some(u => u.email.toLowerCase() === form.email.toLowerCase())) {
@@ -71,8 +70,8 @@ export function SettingsPage() {
       setFormError('Passwords do not match. Please verify.');
       return;
     }
-    if (form.password.length < 8) {
-      setFormError('Password must be at least 8 characters.');
+    if (form.password.length < 3) {
+      setFormError('Password must be at least 3 characters.');
       return;
     }
     if (form.role === 'operator') {
@@ -86,27 +85,21 @@ export function SettingsPage() {
       }
     }
 
-    setCreatingUser(true);
-    try {
-      await createManagedUser({
-        name: form.name.trim(),
-        email: form.email.trim(),
-        password: form.password,
-        role: form.role,
-        barangay: form.barangay || undefined,
-        operatorPosition: form.role === 'operator' ? form.operatorPosition.trim() : undefined,
-        verificationStatus: form.role === 'owner' ? 'verified' : undefined,
-        status: 'active',
-        createdAt: new Date().toISOString().split('T')[0],
-      });
-      setAddOpen(false);
-      setForm({ name: '', email: '', password: '', confirmPassword: '', role: 'owner', barangay: '', operatorPosition: '' });
-    } catch (error) {
-      console.error('Failed to create managed user:', error);
-      setFormError(error instanceof Error ? error.message : 'Could not create the account. Please try again.');
-    } finally {
-      setCreatingUser(false);
-    }
+    addUser({
+      id: 'USR' + generateId(),
+      name: form.name.trim(),
+      email: form.email.trim(),
+      password: form.password,
+      role: form.role,
+      barangay: form.barangay || undefined,
+      operatorPosition: form.role === 'operator' ? form.operatorPosition.trim() : undefined,
+      verificationStatus: form.role === 'owner' ? 'verified' : undefined,
+      status: 'active',
+      createdAt: new Date().toISOString().split('T')[0],
+    });
+    setAddOpen(false);
+    setForm({ name: '', email: '', password: '', confirmPassword: '', role: 'owner', barangay: '', operatorPosition: '' });
+    setFormError('');
   }
 
   function toggleStatus(user: User) {
@@ -179,9 +172,7 @@ export function SettingsPage() {
                 )}
                 {formError && <p className="text-xs text-destructive">{formError}</p>}
                 <DialogFooter>
-                  <Button type="submit" disabled={creatingUser}>
-                    {creatingUser ? 'Creating account...' : 'Create User'}
-                  </Button>
+                  <Button type="submit">Create User</Button>
                 </DialogFooter>
               </form>
             </DialogContent>

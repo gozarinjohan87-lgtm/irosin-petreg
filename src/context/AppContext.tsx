@@ -1,15 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
-import { isSupabaseConfigured, supabase } from '@/lib/supabaseClient';
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import {
-  collectionsFromRows,
-  recordsFromCollections,
-  serializeCloudRecord,
-  type CloudCollection,
-  type CloudRecordRow,
-} from '@/lib/petregCloud';
 import type { User, Pet, Vaccination, Incident, Notification, UserRole, BiteCase, AdoptionListing, AdoptionRequest, StraySighting, AuditLog, SmsReminderLog, PurokChangeRequest, OfflineDispatchLog } from '@/types/types';
 import {
   SEED_USERS, SEED_PETS, SEED_VACCINATIONS,
@@ -33,9 +24,6 @@ interface AppState {
 }
 
 interface AppContextType extends AppState {
-  cloudLoading: boolean;
-  cloudError: string | null;
-  createManagedUser: (user: Omit<User, 'id'>) => Promise<void>;
   login: (emailOrUsername: string, password: string) => User | null;
   logout: () => void;
   sendPasswordResetCode: (identifier: string) => { success: boolean; code?: string; message: string };
@@ -92,24 +80,6 @@ interface AppContextType extends AppState {
 const STORAGE_KEY = 'pet_registry_data_v6';
 
 function loadState(): AppState {
-  if (!import.meta.env.DEV) {
-    return {
-      users: [],
-      pets: [],
-      vaccinations: [],
-      incidents: [],
-      notifications: [],
-      biteCases: [],
-      adoptionListings: [],
-      straySightings: [],
-      auditLogs: [],
-      smsLogs: [],
-      purokRequests: [],
-      offlineDispatches: [],
-      currentUser: null,
-    };
-  }
-
   try {
     const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('pet_registry_data_v5') || localStorage.getItem('pet_registry_data_v4');
     if (raw) {
@@ -174,7 +144,7 @@ function loadState(): AppState {
       });
 
       return {
-        users: import.meta.env.DEV ? mergedUsers : mergedUsers.map(user => ({ ...user, password: '' })),
+        users: mergedUsers,
         pets: mergedPets,
         vaccinations: parsed.vaccinations ?? SEED_VACCINATIONS,
         incidents: parsed.incidents ?? SEED_INCIDENTS,
@@ -186,7 +156,7 @@ function loadState(): AppState {
         smsLogs: parsed.smsLogs ?? [],
         purokRequests: parsed.purokRequests ?? [],
         offlineDispatches: parsed.offlineDispatches ?? [],
-        currentUser: import.meta.env.DEV ? parsed.currentUser ?? null : null,
+        currentUser: parsed.currentUser ?? null,
       };
     }
   } catch {
@@ -209,50 +179,9 @@ function loadState(): AppState {
   };
 }
 
-function userFromProfile(row: Record<string, unknown>): User {
-  return {
-    id: typeof row.id === 'string' ? row.id : '',
-    name: typeof row.name === 'string' ? row.name : '',
-    username: typeof row.username === 'string' ? row.username : undefined,
-    email: typeof row.email === 'string' ? row.email : '',
-    password: '',
-    role: row.role === 'admin' || row.role === 'operator' || row.role === 'owner' || row.role === 'bite_center' || row.role === 'vet_clinic'
-      ? row.role
-      : 'owner',
-    barangay: typeof row.barangay === 'string' ? row.barangay : undefined,
-    purok: typeof row.purok === 'string' ? row.purok : undefined,
-    contactNumber: typeof row.contact_number === 'string' ? row.contact_number : undefined,
-    address: typeof row.address === 'string' ? row.address : undefined,
-    operatorPosition: typeof row.operator_position === 'string' ? row.operator_position : undefined,
-    avatarUrl: typeof row.avatar_url === 'string' ? row.avatar_url : undefined,
-    status: row.status === 'active' ? 'active' : 'inactive',
-    verificationStatus: row.verification_status === 'verified' || row.verification_status === 'rejected'
-      ? row.verification_status
-      : 'pending',
-    createdAt: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
-  };
-}
-
-/*function saveState(state: AppState) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // ignore
-  }
-}*/
-
 function saveState(state: AppState) {
   try {
-    // 1. Always save locally first (for instant offline access)
-    const stateToPersist = import.meta.env.DEV
-      ? state
-      : {
-          ...state,
-          users: state.users.map(user => ({ ...user, password: '' })),
-          currentUser: state.currentUser ? { ...state.currentUser, password: '' } : null,
-        };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToPersist));
-
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
     // ignore
   }
@@ -262,225 +191,7 @@ const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(loadState);
-  const { user: authUser, profile, loading: authLoading } = useAuth();
-  const [cloudReady, setCloudReady] = useState(false);
-  const [cloudLoading, setCloudLoading] = useState(false);
-  const [cloudError, setCloudError] = useState<string | null>(null);
-  const syncedRecords = useRef(new Map<string, string>());
-  const cloudWriteQueue = useRef<Promise<void>>(Promise.resolve());
 
-  useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setCloudReady(false);
-      setCloudLoading(false);
-      if (!import.meta.env.DEV) {
-        const message = 'Supabase is not configured. Add the project URL and anon key in Vercel.';
-        setCloudError(message);
-        toast.error(message);
-      }
-      return;
-    }
-    if (authLoading) return;
-    if (!authUser || !profile || typeof profile.id !== 'string') {
-      setCloudReady(false);
-      setCloudLoading(false);
-      setCloudError(null);
-      syncedRecords.current.clear();
-      setState(previous => ({
-        ...previous,
-        pets: [],
-        vaccinations: [],
-        incidents: [],
-        notifications: [],
-        biteCases: [],
-        adoptionListings: [],
-        straySightings: [],
-        auditLogs: [],
-        smsLogs: [],
-        purokRequests: [],
-        offlineDispatches: [],
-        currentUser: null,
-      }));
-      return;
-    }
-    if (!supabase) return;
-
-    let cancelled = false;
-    setCloudReady(false);
-    setCloudLoading(true);
-    setCloudError(null);
-    void (async () => {
-      const [recordsResult, profilesResult] = await Promise.all([
-        supabase
-          .from('petreg_app_records')
-          .select('record_type, record_id, owner_profile_id, barangay, payload, created_by_profile_id, updated_at'),
-        supabase.from('profiles').select('*'),
-      ]);
-
-      if (cancelled) return;
-      if (recordsResult.error || profilesResult.error) {
-        const error = recordsResult.error ?? profilesResult.error;
-        console.error('Failed to load PetReg cloud records:', error);
-        const message = 'Could not load registry data from Supabase. Check the PetReg records migration and database policies.';
-        setCloudLoading(false);
-        setCloudError(message);
-        toast.error(message);
-        return;
-      }
-
-      const rows = recordsResult.data as unknown as CloudRecordRow[];
-      const collections = collectionsFromRows(rows);
-      const profileUsers = (profilesResult.data as unknown as Record<string, unknown>[]).map(userFromProfile);
-      syncedRecords.current = new Map(rows.map(row => {
-        const { created_by_profile_id: creator, updated_at: updatedAt, ...record } = row;
-        void creator;
-        void updatedAt;
-        return [`${row.record_type}:${row.record_id}`, serializeCloudRecord(record)];
-      }));
-      setState(previous => ({
-        ...previous,
-        users: profileUsers,
-        pets: (collections.pets ?? []) as Pet[],
-        vaccinations: (collections.vaccinations ?? []) as Vaccination[],
-        incidents: (collections.incidents ?? []) as Incident[],
-        notifications: (collections.notifications ?? []) as Notification[],
-        biteCases: (collections.biteCases ?? []) as BiteCase[],
-        adoptionListings: (collections.adoptionListings ?? []) as AdoptionListing[],
-        straySightings: (collections.straySightings ?? []) as StraySighting[],
-        auditLogs: (collections.auditLogs ?? []) as AuditLog[],
-        smsLogs: (collections.smsLogs ?? []) as SmsReminderLog[],
-        purokRequests: (collections.purokRequests ?? []) as PurokChangeRequest[],
-        offlineDispatches: (collections.offlineDispatches ?? []) as OfflineDispatchLog[],
-      }));
-      setCloudReady(true);
-      setCloudLoading(false);
-    })().catch(error => {
-      if (cancelled) return;
-      console.error('Failed to load PetReg cloud records:', error);
-      const message = 'Could not load registry data from Supabase.';
-      setCloudLoading(false);
-      setCloudError(message);
-      toast.error(message);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authLoading, authUser, profile]);
-
-  useEffect(() => {
-    const client = supabase;
-    if (!cloudReady || !client || !profile || typeof profile.id !== 'string') return;
-
-    const records = recordsFromCollections({
-      pets: state.pets,
-      vaccinations: state.vaccinations,
-      incidents: state.incidents,
-      notifications: state.notifications,
-      biteCases: state.biteCases,
-      adoptionListings: state.adoptionListings,
-      straySightings: state.straySightings,
-      auditLogs: state.auditLogs,
-      smsLogs: state.smsLogs,
-      purokRequests: state.purokRequests,
-      offlineDispatches: state.offlineDispatches,
-    }, profile.id);
-    const currentRecords = new Set(records.map(record => `${record.record_type}:${record.record_id}`));
-    const changedRecords = records.filter(record =>
-      syncedRecords.current.get(`${record.record_type}:${record.record_id}`) !== serializeCloudRecord(record),
-    );
-    const removedByCollection = new Map<CloudCollection, string[]>();
-
-    for (const key of syncedRecords.current.keys()) {
-      if (currentRecords.has(key)) continue;
-      const separator = key.indexOf(':');
-      const collection = key.slice(0, separator) as CloudCollection;
-      const removed = removedByCollection.get(collection) ?? [];
-      removed.push(key.slice(separator + 1));
-      removedByCollection.set(collection, removed);
-    }
-    if (changedRecords.length === 0 && removedByCollection.size === 0) return;
-
-    let cancelled = false;
-    cloudWriteQueue.current = cloudWriteQueue.current.then(async () => {
-      if (cancelled) return;
-
-      const timestamp = new Date().toISOString();
-      if (changedRecords.length > 0) {
-        const { error } = await client
-          .from('petreg_app_records')
-          .upsert(changedRecords.map(record => ({
-            ...record,
-            created_by_profile_id: profile.id,
-            updated_at: timestamp,
-          })), { onConflict: 'record_type,record_id' });
-        if (error) throw error;
-      }
-
-      for (const [collection, ids] of removedByCollection) {
-        const { error } = await client
-          .from('petreg_app_records')
-          .delete()
-          .eq('record_type', collection)
-          .in('record_id', ids);
-        if (error) throw error;
-      }
-
-      if (cancelled) return;
-      syncedRecords.current = new Map(records.map(record => [
-        `${record.record_type}:${record.record_id}`,
-        serializeCloudRecord(record),
-      ]));
-    }).catch(error => {
-      if (cancelled) return;
-      console.error('Failed to save PetReg cloud records:', error);
-      toast.error('Some changes could not be saved to Supabase. Check your account permissions and try again.');
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cloudReady, state.pets, state.vaccinations, state.incidents, state.notifications, state.biteCases, state.adoptionListings, state.straySightings, state.auditLogs, state.smsLogs, state.purokRequests, state.offlineDispatches, profile]);
-
-  useEffect(() => {
-    if (!authUser || !profile) {
-      if (!import.meta.env.DEV || isSupabaseConfigured) {
-        setState(previous => previous.currentUser ? { ...previous, currentUser: null } : previous);
-      }
-      return;
-    }
-
-    const profileStatus = profile.status;
-    const appUser: User = {
-      id: profile.id ?? authUser.id,
-      name: typeof profile.name === 'string' ? profile.name : authUser.user_metadata.name ?? authUser.email ?? 'PetReg User',
-      username: typeof profile.username === 'string' ? profile.username : undefined,
-      email: typeof profile.email === 'string' ? profile.email : authUser.email ?? '',
-      password: '',
-      role: profile.role === 'admin' || profile.role === 'operator' || profile.role === 'owner' || profile.role === 'bite_center' || profile.role === 'vet_clinic'
-        ? profile.role
-        : 'owner',
-      barangay: typeof profile.barangay === 'string' ? profile.barangay : undefined,
-      purok: typeof profile.purok === 'string' ? profile.purok : undefined,
-      contactNumber: typeof profile.contact_number === 'string' ? profile.contact_number : undefined,
-      address: typeof profile.address === 'string' ? profile.address : undefined,
-      avatarUrl: typeof profile.avatar_url === 'string' ? profile.avatar_url : undefined,
-      status: profileStatus === 'active' ? 'active' : 'inactive',
-      verificationStatus: profile.verification_status === 'verified' || profile.verification_status === 'rejected'
-        ? profile.verification_status
-        : 'pending',
-      createdAt: typeof profile.created_at === 'string' ? profile.created_at : new Date().toISOString(),
-    };
-
-    setState(previous => ({
-      ...previous,
-      currentUser: appUser,
-      users: [
-        ...previous.users.filter(existing => existing.id !== appUser.id && existing.email.toLowerCase() !== appUser.email.toLowerCase()),
-        appUser,
-      ],
-    }));
-  }, [authUser, profile]);
   useEffect(() => {
     saveState(state);
   }, [state]);
@@ -488,12 +199,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const update = (partial: Partial<AppState>) => {
     setState(prev => ({ ...prev, ...partial }));
   };
-  
 
   // Support login by email OR by username (email prefix before @)
   const login = (emailOrUsername: string, password: string): User | null => {
-    if (!import.meta.env.DEV) return null;
-
     const input = emailOrUsername.trim().toLowerCase();
     const user = state.users.find(u => {
       const emailMatch = u.email.toLowerCase() === input;
@@ -504,17 +212,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return user ?? null;
   };
 
-  const logout = () => {
-    update({ currentUser: null });
-    if (!supabase) return;
-
-    void supabase.auth.signOut().then(({ error }) => {
-      if (error) {
-        console.error('Failed to sign out from Supabase:', error);
-        toast.error('Could not complete sign out. Please try again.');
-      }
-    });
-  };
+  const logout = () => update({ currentUser: null });
 
   // Password reset storage (in memory mock)
   const resetCodesRef = React.useRef<Map<string, string>>(new Map());
@@ -738,121 +436,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const addUser = (user: User) =>
     update({ users: [...state.users, user] });
-  const createManagedUser = async (user: Omit<User, 'id'>) => {
-    if (!supabase) {
-      throw new Error('Supabase is not configured. Admin accounts can only be created in the deployed Supabase-connected app.');
-    }
-
-    const { data, error } = await supabase.functions.invoke('admin-create-user', {
-      body: {
-        name: user.name,
-        email: user.email,
-        password: user.password,
-        role: user.role,
-        barangay: user.barangay,
-        operatorPosition: user.operatorPosition,
-      },
-    });
-    if (error) {
-      let message = error.message;
-      if (typeof error === 'object' && error !== null && 'context' in error && error.context instanceof Response) {
-        try {
-          const responseBody: unknown = await error.context.clone().json();
-          if (
-            typeof responseBody === 'object' &&
-            responseBody !== null &&
-            'error' in responseBody &&
-            typeof responseBody.error === 'string'
-          ) {
-            message = responseBody.error;
-          }
-        } catch {
-          // Keep the SDK error message when the response is not JSON.
-        }
-      }
-      throw new Error(message);
-    }
-    if (!data?.profile || typeof data.profile.id !== 'string') {
-      throw new Error('The account was created but the server did not return its PetReg profile. Refresh the user list or contact the administrator.');
-    }
-
-    const managedUser = userFromProfile(data.profile as Record<string, unknown>);
-    setState(previous => ({
-      ...previous,
-      users: [...previous.users.filter(existing => existing.id !== managedUser.id), managedUser],
-    }));
-  };
   const registerUser = (user: User) =>
     update({
       users: [...state.users, user],
       currentUser: user,
     });
-  const updateUser = (user: User) => {
-    const existingUser = state.users.find(existing => existing.id === user.id);
+  const updateUser = (user: User) =>
     update({
       users: state.users.map(u => u.id === user.id ? user : u),
       currentUser: state.currentUser?.id === user.id ? user : state.currentUser,
     });
-
-    if (
-      supabase &&
-      authUser &&
-      profile &&
-      existingUser?.verificationStatus !== user.verificationStatus &&
-      (user.verificationStatus === 'pending' || user.verificationStatus === 'verified' || user.verificationStatus === 'rejected')
-    ) {
-      void (async () => {
-        try {
-          const { error } = await supabase.rpc('review_owner_verification', {
-            target_profile_id: user.id,
-            new_verification_status: user.verificationStatus,
-          });
-          if (error) throw error;
-        } catch (error) {
-          console.error('Failed to review owner verification in Supabase:', error);
-          toast.error('Owner verification could not be saved. Refresh the page and try again.');
-          if (existingUser) {
-            setState(previous => ({
-              ...previous,
-              users: previous.users.map(existing => existing.id === existingUser.id ? existingUser : existing),
-            }));
-          }
-        }
-      })();
-      return;
-    }
-
-    if (!supabase || !authUser || !profile || profile.id !== user.id) return;
-
-    void (async () => {
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .update({
-            name: user.name,
-            username: user.username,
-            barangay: user.barangay,
-            purok: user.purok ?? null,
-            contact_number: user.contactNumber ?? null,
-            address: user.address ?? null,
-            avatar_url: user.avatarUrl ?? null,
-          })
-          .eq('id', user.id)
-          .select('id')
-          .maybeSingle();
-
-        if (error) {
-          console.error('Failed to update Supabase profile:', error);
-          toast.error('Profile changes were saved locally but could not be saved to Supabase.');
-        } else if (!data) {
-          toast.error('Supabase did not update this profile. Your changes are only saved locally.');
-        }
-      } catch (error) {
-        console.error('Failed to update Supabase profile:', error);
-        toast.error('Profile changes were saved locally but could not be saved to Supabase.');
-      }
-    })();
-  };
   const deleteUser = (id: string) =>
     update({ users: state.users.filter(u => u.id !== id) });
 
@@ -1115,8 +708,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={{
       ...state, login, logout,
-      cloudLoading, cloudError,
-      createManagedUser,
       addPet, updatePet, deletePet,
       addVaccination, updateVaccination,
       addIncident, updateIncident,
